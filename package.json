@@ -1,0 +1,44 @@
+{
+  "name": "paddock-diecast-tracker",
+  "productName": "PADDOCK",
+  "version": "1.0.0",
+  "description": "PADDOCK: a local 1:64 diecast collection tracker (Electron)",
+  "main": "main.js",
+  "author": "TiJayFLY",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.tijayfly.paddock",
+    "productName": "PADDOCK",
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**",
+      "renderer/**",
+      "data/**"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "renderer/icon.png",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "PADDOCK-${version}-portable.exe"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tijayfly/paddock-diecast-tracker.git"
+  }
+}
