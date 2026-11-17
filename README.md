@@ -36,7 +36,15 @@ To build a portable Windows .exe: `npm run dist` (output in `dist/`).
 - The first launch with no data starts you with a few **example cars** (`data/seed-collection.json`). Delete them from each car's page, or replace the seed file with your own before first launch.
 
 ## Current values
-Current values are **dummy placeholders** by default (from the price paid or a typical price for the brand and range, with chases and Treasure Hunts worth a multiple), so the app is usable out of the box. There's an eBay UK option in Settings (median asking price of new Buy It Now listings) that needs your own eBay developer App ID and Cert ID; it hasn't been tested against the live eBay API yet.
+Current values are **dummy placeholders** by default (from the price paid or a typical price for the brand and range, with chases and Treasure Hunts worth a multiple), so the app is usable out of the box. There's an eBay UK option in Settings (median asking price of new Buy It Now listings) that needs your own eBay developer keys. It hasn't been confirmed against the live eBay API yet.
+
+### Setting up eBay keys
+1. Create a keyset at [developer.ebay.com](https://developer.ebay.com). Use the **Production** keys, not Sandbox: Sandbox is eBay's test marketplace and won't sign in to the live API.
+2. Copy the **App ID** (Client ID) and **Cert ID** (Client Secret) from the **same** Production keyset. The Dev ID and user tokens aren't needed.
+3. eBay keeps Production keys disabled until **Marketplace Account Deletion** notifications are dealt with. PADDOCK stores no eBay user data, so choose the **exemption** ("not persisting eBay data"). The other option needs a web server endpoint, which a desktop app doesn't have.
+4. In PADDOCK: Settings → Values → enter both keys and click **Test eBay keys**. A green ✓ means they work; save, choose eBay UK, and **Refresh all values**.
+
+If a refresh fails, PADDOCK keeps the last value and says why: on the car's page, in the Current value total, and in a message after refreshing. The keys are stored only in your local `paddock-data/collection.json`, never in the view-only page.
 
 ## Publishing the view-only page to GitHub
 1. Create a repo for the page and turn on GitHub Pages (Settings → Pages → Deploy from branch → main, root).

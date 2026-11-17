@@ -127,7 +127,10 @@ async function refreshPrices(ids) {
     try {
       const p = await Prices.getCurrentPrice(it, DB.settings);
       if (p) it.current = p;
-    } catch (e) { it.current = { ...(it.current || {}), error: String(e.message || e) }; }
+    } catch (e) {
+      // keep the last value, and record why this refresh failed (a later successful refresh replaces it all)
+      it.current = { ...(it.current || {}), error: String(e.message || e), errorAt: new Date().toISOString() };
+    }
   }
   saveDB(DB);
 }
@@ -243,6 +246,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('images:cacheAll', () => cacheAll(win));
   ipcMain.handle('images:auto', (_e, list) => autoPhotos(win, list));
   ipcMain.handle('prices:refresh', async (_e, ids) => { await refreshPrices(ids); return DB; });
+  ipcMain.handle('ebay:test', (_e, appId, certId) => Prices.testEbayKeys(appId, certId));
   ipcMain.handle('export:view', async (_e, opts = {}) => {
     const r = exportViewOnly();
     const s = DB.settings;
