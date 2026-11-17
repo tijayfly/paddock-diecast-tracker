@@ -36,7 +36,7 @@ To build a portable Windows .exe: `npm run dist` (output in `dist/`).
 - The first launch with no data starts you with a few **example cars** (`data/seed-collection.json`). Delete them from each car's page, or replace the seed file with your own before first launch.
 
 ## Current values
-Current values are **dummy placeholders** by default (from the price paid or a typical price for the brand and range, with chases and Treasure Hunts worth a multiple), so the app is usable out of the box. There's an eBay UK option in Settings (median asking price of new Buy It Now listings) that needs your own eBay developer keys. It hasn't been confirmed against the live eBay API yet.
+Current values are **dummy placeholders** by default (from the price paid or a typical price for the brand and range, with chases and Treasure Hunts worth a multiple), so the app is usable out of the box. There's an eBay UK option in Settings (median asking price of new Buy It Now listings) that needs your own eBay developer keys.
 
 ### Setting up eBay keys
 1. Create a keyset at [developer.ebay.com](https://developer.ebay.com). Use the **Production** keys, not Sandbox: Sandbox is eBay's test marketplace and won't sign in to the live API.
