@@ -35,9 +35,17 @@
   const priceErrors = (items) => items.filter((i) => i.current && i.current.error).length;
   const errLine = (n) => `<span class="price-err">⚠ eBay failed for ${n} car${n === 1 ? '' : 's'}</span>`;
   // Refresh values, then report any items whose refresh failed this time round.
+  const ebayOn = () => DB.settings.priceProvider === 'ebay' && (DB.settings.ebayAppId || '').trim() && (DB.settings.ebayCertId || '').trim();
   async function refreshValues(ids) {
-    const start = new Date().toISOString();
+    const start = new Date(Date.now() - 1000).toISOString();
     DB = await API.refreshPrices(ids);
+    priceProgress = null; updatePill();
+    if (!ids && ebayOn()) {   // a full eBay update is all or nothing
+      const pe = DB.settings.pricesError;
+      if (pe && pe.at >= start) toast('Couldn’t update values, so the previous ones are kept: ' + pe.message, 7000);
+      else toast('Values updated');
+      return pe && pe.at >= start ? 1 : 0;
+    }
     const set = ids ? DB.items.filter((i) => ids.includes(i.id)) : DB.items;
     const failed = set.filter((i) => i.current && i.current.errorAt && i.current.errorAt >= start);
     if (!failed.length) toast(set.length === 1 ? 'Value refreshed' : 'Values refreshed');
@@ -105,15 +113,47 @@
   paintThemeBtn();
 
   // ---------- chrome ----------
+  // "· Updated 18:19" today, "· Updated 17 Nov 12:09" otherwise
+  function liveStamp() {
+    const u = DB.settings.pricesUpdatedAt;
+    if (!u) return ' · Not updated yet';
+    const d = new Date(u), today = new Date().toDateString() === d.toDateString();
+    const hm = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return ' · Updated ' + (today ? hm : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' ' + hm);
+  }
+  // thin gradient bar along the top of the window while values update from eBay
+  let priceProgress = null;   // { done, total } while an update runs
+  function priceBar(p) {
+    let bar = document.getElementById('pricebar');
+    if (!bar) { bar = document.createElement('div'); bar.id = 'pricebar'; bar.innerHTML = '<div class="fill"></div>'; document.body.appendChild(bar); }
+    const running = p.done < p.total && !p.failed;
+    bar.classList.toggle('show', running);
+    bar.querySelector('.fill').style.width = (p.total ? (p.done / p.total) * 100 : 0) + '%';
+    priceProgress = running ? { done: p.done, total: p.total } : null;
+    updatePill();
+    if (!running && p.failed) toast('Couldn’t update values, so the previous ones are kept: ' + p.failed, 7000);
+  }
+  function updatePill() {
+    const pill = document.getElementById('mode-pill');
+    if (!VIEW && priceProgress) {
+      pill.textContent = `UPDATING VALUES · ${priceProgress.done}/${priceProgress.total}`;
+      pill.title = ''; pill.classList.remove('pill-warn'); pill.classList.add('pill-busy'); return;
+    }
+    pill.classList.remove('pill-busy');
+    pill.textContent = VIEW && !SNAP ? 'VIEW MODE · PREVIEW' : VIEW
+      ? 'VIEW ONLY · ' + (DB.exported ? new Date(DB.exported).toLocaleDateString('en-GB') : '')
+      : (DB.settings.priceProvider === 'ebay' ? 'LIVE · eBay UK' + liveStamp() : 'VALUES: DUMMY DATA');
+    const pe = DB.settings.pricesError, warn = !VIEW && DB.settings.priceProvider === 'ebay' && !!pe;
+    pill.title = warn ? `Last update failed (${new Date(pe.at).toLocaleString('en-GB')}): ${pe.message}` : '';
+    pill.classList.toggle('pill-warn', warn);
+  }
   function renderTabs(route) {
     const tabs = [['#/', 'Collection', route === 'collection' || route === 'item'], ['#/wishlist', 'Wishlist', route === 'wishlist']];
     if (!VIEW) tabs.push(['#/settings', 'Settings', route === 'settings']);
     let html = tabs.map(([h, l, on]) => `<a href="${h}" class="${on ? 'active' : ''}">${l}</a>`).join('');
     if (!VIEW) html += `<a href="#/add" class="add ${route === 'add' ? 'active' : ''}">+ Add car</a>`;
     document.getElementById('tabs').innerHTML = html;
-    document.getElementById('mode-pill').textContent = VIEW && !SNAP ? 'VIEW MODE · PREVIEW' : VIEW
-      ? 'VIEW ONLY · ' + (DB.exported ? new Date(DB.exported).toLocaleDateString('en-GB') : '')
-      : (DB.settings.priceProvider === 'ebay' ? 'LIVE · eBay UK' : 'VALUES: DUMMY DATA');
+    updatePill();
   }
 
   // ---------- list views ----------
@@ -654,6 +694,7 @@
       DB = await API.getDB();
       API.on('db-changed', async () => { DB = await API.getDB(); if (!document.querySelector('.modal-bg') && !document.getElementById('rf') && !document.getElementById('ef')) route(); });
       API.on('progress', (p) => {
+        if (p.kind === 'prices') { priceBar(p); return; }
         const el = document.getElementById('progress');
         const what = p.kind === 'github' ? 'Uploading to GitHub' : p.kind === 'autophoto' ? 'Finding photos' : 'Downloading photos';
         el.textContent = p.done < p.total ? `${what} ${p.done}/${p.total}` : '';

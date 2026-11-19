@@ -16,7 +16,7 @@ Built from [HANGAR](https://github.com/tijayfly/hangar-gunpla-tracker), the Gunp
 - Light and dark mode, and a phone-friendly layout for the exported page.
 
 ## Download (Windows)
-Grab **PADDOCK-1.0.0-portable.exe** from the [latest release](https://github.com/tijayfly/paddock-diecast-tracker/releases/latest). There's nothing to install: put it in its own folder and run it. Windows SmartScreen may warn because the app isn't code-signed; click **More info → Run anyway**.
+Grab **PADDOCK-1.0.1-portable.exe** from the [latest release](https://github.com/tijayfly/paddock-diecast-tracker/releases/latest). There's nothing to install: put it in its own folder and run it. Windows SmartScreen may warn because the app isn't code-signed; click **More info → Run anyway**.
 
 ## Run from source
 You need [Node.js](https://nodejs.org) (LTS).
@@ -44,12 +44,16 @@ Current values are **dummy placeholders** by default (from the price paid or a t
 3. eBay keeps Production keys disabled until **Marketplace Account Deletion** notifications are dealt with. PADDOCK stores no eBay user data, so choose the **exemption** ("not persisting eBay data"). The other option needs a web server endpoint, which a desktop app doesn't have.
 4. In PADDOCK: Settings → Values → enter both keys and click **Test eBay keys**. A green ✓ means they work; save, choose eBay UK, and **Refresh all values**.
 
+With keys set, all values update from eBay when PADDOCK opens, at most once every 24 hours (**Refresh all values** updates them any time). A progress bar runs along the top while the header shows the count, then shows when values were last updated. An update is all or nothing: if anything goes wrong, the previous values and update time are kept and the header shows ⚠ with the reason.
+
 If a refresh fails, PADDOCK keeps the last value and says why: on the car's page, in the Current value total, and in a message after refreshing. The keys are stored only in your local `paddock-data/collection.json`, never in the view-only page.
 
 ## Publishing the view-only page to GitHub
 1. Create a repo for the page and turn on GitHub Pages (Settings → Pages → Deploy from branch → main, root).
 2. Create a fine-grained personal access token limited to that repo with **Contents: Read and write**.
 3. In PADDOCK: Settings → View-only page → enter `owner/repo` and the token, then **Publish now** (or tick "Also publish every time I export").
+
+When GitHub publishing is set up, closing PADDOCK after adding or changing cars asks whether to publish an updated catalogue first.
 
 Only PADDOCK's own files (index.html, data.js, app.js, match.js, styles.css, theme.js, logo.svg, .nojekyll, images/) are changed in that repo. The token is stored only in your local `paddock-data/collection.json`.
 

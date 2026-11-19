@@ -1,7 +1,7 @@
 {
   "name": "paddock-diecast-tracker",
   "productName": "PADDOCK",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "PADDOCK: a local 1:64 diecast collection tracker (Electron)",
   "main": "main.js",
   "author": "TiJayFLY",

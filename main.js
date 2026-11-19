@@ -134,6 +134,47 @@ async function refreshPrices(ids) {
   }
   saveDB(DB);
 }
+// Update every value from eBay in one go. All or nothing: if anything goes wrong, nothing changes
+// (old values and the old "last updated" time stay). Skipped when eBay isn't set up.
+const ebayReady = (s) => s.priceProvider === 'ebay' && (s.ebayAppId || '').trim() && (s.ebayCertId || '').trim();
+let updating = null;
+function updateAllPrices() {
+  if (updating) return updating;
+  updating = (async () => {
+    const s = DB.settings;
+    if (!ebayReady(s)) return { ok: false, skipped: true };
+    const items = DB.items.slice();
+    // every app window except the hidden photo-search one (the main window variable isn't in scope here)
+    const send = (m) => { for (const w of BrowserWindow.getAllWindows()) if (w !== searchWin && !w.isDestroyed()) w.webContents.send('progress', { kind: 'prices', ...m }); };
+    const results = new Map();
+    try {
+      for (let n = 0; n < items.length; n++) {
+        send({ done: n, total: items.length });
+        results.set(items[n].id, await Prices.getCurrentPrice(items[n], s));
+      }
+    } catch (e) {
+      s.pricesError = { message: String(e.message || e), at: new Date().toISOString() };
+      saveDB(DB);
+      send({ done: items.length, total: items.length, failed: s.pricesError.message });
+      return { ok: false, error: s.pricesError.message };
+    }
+    for (const it of items) {
+      const p = results.get(it.id);
+      if (!p) continue;
+      if (p.gbp == null && it.current && it.current.gbp != null) {   // too few listings: keep the previous value
+        it.current = { ...it.current }; delete it.current.error; delete it.current.errorAt;
+        continue;
+      }
+      it.current = p;
+    }
+    s.pricesUpdatedAt = new Date().toISOString(); delete s.pricesError;
+    saveDB(DB);
+    send({ done: items.length, total: items.length });
+    return { ok: true };
+  })().finally(() => { updating = null; });
+  return updating;
+}
+
 // ---------- view-only export ----------
 const PRICE_FIELDS = ['paid', 'gift', 'boughtAt', 'current', 'targetPrice', 'whereToBuy', 'imageCandidates', 'original'];
 function exportViewOnly() {
@@ -210,19 +251,26 @@ app.whenReady().then(async () => {
   Lookup.setBrowserSearch(browserImageSearch);
 
   ipcMain.handle('db:get', () => DB);
+  // Windows/Electron bug: after a native dialog, text fields can stop accepting clicks until the window
+  // is refocused. Every dialog goes through these wrappers, which hand focus back to the page afterwards.
+  const refocus = () => setTimeout(() => { if (!win.isDestroyed()) { win.blur(); win.focus(); win.webContents.focus(); } }, 60);
+  const messageBox = async (opts) => { try { return await dialog.showMessageBox(win, opts); } finally { refocus(); } };
+  const openDialog = async (opts) => { try { return await dialog.showOpenDialog(win, opts); } finally { refocus(); } };
+  // anything that changes what the catalogue shows is stamped, so closing can offer to publish (price updates don't count)
+  const markChanged = () => { DB.settings.contentChangedAt = new Date().toISOString(); };
   ipcMain.handle('db:paths', () => ({ data: DATA_DIR, view: VIEW_DIR }));
   ipcMain.handle('item:save', (_e, item) => {
     const i = DB.items.findIndex((x) => x.id === item.id);
     if (i >= 0) DB.items[i] = item; else DB.items.push(item);
-    saveDB(DB); return item;
+    markChanged(); saveDB(DB); return item;
   });
   ipcMain.handle('item:delete', async (_e, id) => {
     const it = DB.items.find((x) => x.id === id);
-    const { response } = await dialog.showMessageBox(win, { type: 'warning', buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1, message: `Delete "${it ? it.title : id}"?`, detail: 'This removes the entry from your list. A backup of the previous data file is kept as collection.json.bak.' });
+    const { response } = await messageBox({ type: 'warning', buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1, message: `Delete "${it ? it.title : id}"?`, detail: 'This removes the entry from your list. A backup of the previous data file is kept as collection.json.bak.' });
     if (response !== 0) return false;
-    DB.items = DB.items.filter((x) => x.id !== id); saveDB(DB); return true;
+    DB.items = DB.items.filter((x) => x.id !== id); markChanged(); saveDB(DB); return true;
   });
-  ipcMain.handle('item:remove', (_e, id) => { DB.items = DB.items.filter((x) => x.id !== id); saveDB(DB); return true; });
+  ipcMain.handle('item:remove', (_e, id) => { DB.items = DB.items.filter((x) => x.id !== id); markChanged(); saveDB(DB); return true; });
   ipcMain.handle('settings:save', (_e, s) => { DB.settings = { ...DB.settings, ...s }; saveDB(DB); return DB.settings; });
   ipcMain.handle('lookup:name', (_e, name, brand) => Lookup.autofill(name, brand));
   ipcMain.handle('lookup:images', (_e, q) => Lookup.imageSearch(q));
@@ -230,10 +278,10 @@ app.whenReady().then(async () => {
     const it = DB.items.find((x) => x.id === id); if (!it) return null;
     it.image = { url: img.u || img.url, thumb: img.th || img.thumb || null, title: img.t || img.title || '', local: null };
     it.imageReview = false;
-    await cacheImage(it); saveDB(DB); return it;
+    await cacheImage(it); markChanged(); saveDB(DB); return it;
   });
   ipcMain.handle('image:file', async (_e, id) => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }] });
+    const r = await openDialog({ properties: ['openFile'], filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
     const it = DB.items.find((x) => x.id === id); if (!it) return null;
     const ext = path.extname(r.filePaths[0]).toLowerCase() || '.jpg';
@@ -241,16 +289,17 @@ app.whenReady().then(async () => {
     fs.mkdirSync(IMG_DIR, { recursive: true });
     fs.copyFileSync(r.filePaths[0], path.join(IMG_DIR, name));
     it.image = { url: null, thumb: null, title: 'Own photo', local: 'images/' + name, own: true };
-    it.imageReview = false; saveDB(DB); return it;
+    it.imageReview = false; markChanged(); saveDB(DB); return it;
   });
   ipcMain.handle('images:cacheAll', () => cacheAll(win));
   ipcMain.handle('images:auto', (_e, list) => autoPhotos(win, list));
-  ipcMain.handle('prices:refresh', async (_e, ids) => { await refreshPrices(ids); return DB; });
+  // Refresh all values with eBay set up = a full all-or-nothing update (ignores the 24-hour rule); single items as before
+  ipcMain.handle('prices:refresh', async (_e, ids) => { if (!ids && ebayReady(DB.settings)) await updateAllPrices(); else await refreshPrices(ids); return DB; });
   ipcMain.handle('ebay:test', (_e, appId, certId) => Prices.testEbayKeys(appId, certId));
-  ipcMain.handle('export:view', async (_e, opts = {}) => {
+  async function exportAndPublish(publish) {
     const r = exportViewOnly();
     const s = DB.settings;
-    if (opts.publish ?? s.githubPublish) {
+    if (publish) {
       if (!s.githubToken || !s.githubRepo) { r.publishError = 'Add a GitHub repo and token in Settings first.'; return r; }
       try {
         r.github = await GitHub.publish({
@@ -263,13 +312,44 @@ app.whenReady().then(async () => {
       win && !win.isDestroyed() && win.webContents.send('progress', { kind: 'github', done: 1, total: 1 });
     }
     return r;
+  }
+  ipcMain.handle('export:view', (_e, opts = {}) => exportAndPublish(opts.publish ?? DB.settings.githubPublish));
+
+  // closing: if the collection changed since the catalogue was last published, offer to publish it first
+  let closing = false;
+  win.on('close', async (e) => {
+    if (closing || process.env.PADDOCK_SHOTS) return;
+    const s = DB.settings;
+    const ghReady = (s.githubRepo || '').trim() && (s.githubToken || '').trim();
+    const changed = s.contentChangedAt && (!s.githubLast || Date.parse(s.contentChangedAt) > Date.parse(s.githubLast.at));
+    if (!ghReady || !changed) return;
+    e.preventDefault();
+    const { response } = await messageBox({
+      type: 'question', buttons: ['Publish and close', 'Close without publishing', 'Cancel'], defaultId: 0, cancelId: 2, noLink: true,
+      message: 'Publish your updated catalogue?',
+      detail: `You've added or changed cars since the catalogue was last published to ${s.githubRepo.trim()}. Publish a new version to GitHub Pages before closing?`,
+    });
+    if (response === 2) return;
+    if (response === 0) {
+      const r = await exportAndPublish(true);
+      if (r.publishError) {
+        const { response: again } = await messageBox({ type: 'warning', buttons: ['Close anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true, message: 'Couldn’t publish the catalogue', detail: r.publishError });
+        if (again !== 0) return;
+      }
+    }
+    closing = true; win.close();
   });
   ipcMain.handle('open:path', (_e, p) => shell.openPath(p));
   ipcMain.handle('open:url', (_e, u) => shell.openExternal(u));
 
   // first-run work in the background
   win.webContents.once('did-finish-load', async () => {
-    if (DB.items.some((i) => !i.current)) { await refreshPrices(); win.webContents.send('db-changed'); }
+    if (ebayReady(DB.settings)) {
+      // once a day is plenty: skip if the last successful update was under 24 hours ago (Refresh all values still forces one)
+      const last = Date.parse(DB.settings.pricesUpdatedAt || 0) || 0;
+      if (Date.now() - last >= 24 * 3600 * 1000) { await updateAllPrices(); win.webContents.send('db-changed'); }
+    }
+    else if (DB.items.some((i) => !i.current)) { await refreshPrices(); win.webContents.send('db-changed'); }
     cacheAll(win);
   });
 });
